@@ -1,0 +1,76 @@
+version: '3'
+
+services:
+  postgres:
+    restart: always
+    image: postgres:latest
+    ports:
+      - "5432:5432"
+    expose:
+      - "5432"
+    env_file:
+      - env/.env_file
+    volumes:
+      - ./docker/postgres/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+      - /var/lib/postgresql/data
+  nginx:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ./docker/nginx/Dockerfile
+    volumes:
+      - ./src/static:/app/src/static
+      - ./src/media:/app/src/media
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/django.conf:/etc/nginx/sites-enabled/django.conf
+    ports:
+      - "80:80"
+    links:
+      - django
+  django:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./docker/django/Dockerfile
+    env_file:
+      - env/.env_file
+    ports:
+      - "8000:8000"
+    expose:
+      - 8000
+    volumes:
+      - ./src/static:/app/src/static
+      - ./src/media:/app/src/media
+      - ./src:/app/src
+    privileged: true
+    command: sh ./docker/django/run.sh
+    links:
+      - redis
+    depends_on:
+      - postgres
+      - redis
+  redis:
+    privileged: true
+    build:
+      context: .
+      dockerfile: ./docker/redis/Dockerfile
+    expose:
+      - 6379
+    env_file:
+      - env/.env_file
+    volumes:
+      - ./docker/redis/data:/data
+  celery:
+    build:
+      context: .
+      dockerfile: ./docker/django/Dockerfile
+    working_dir: /src
+    env_file:
+      - env/.env_file
+    command: celery -A server worker -l info
+    volumes:
+      - ./src:/src
+      - ./.git:/src/.git
+    depends_on:
+      - postgres
+      - redis
